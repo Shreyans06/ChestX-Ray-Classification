@@ -161,7 +161,7 @@ data_set = get_data(train_path , data_list)
 # print(train_images)
 # data_set.drop(data_set[data_set['age'] >= 24000].index, inplace = True)
 data_set['age'] = data_set['age'].apply(lambda x : x[0] if len(x) > 0 else None)
-print(data_set)
+# print(data_set)
 
 
 # transform =  transforms.Compose([transforms.Resize((224,224)) , transforms.Grayscale(num_output_channels=3), transforms.ToTensor()])
