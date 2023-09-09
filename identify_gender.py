@@ -151,8 +151,15 @@ test_path = os.getcwd() + '/datasets/Gender01/test'
 train_images , train_targets , class_map = get_data(train_path)
 test_images , test_targets = get_data(test_path , "test")
 
-transform =  transforms.Compose([transforms.Resize((224,224)) , transforms.Grayscale(num_output_channels=3), transforms.ToTensor()])
-
+# transform =  transforms.Compose([transforms.Resize((224,224)) , transforms.Grayscale(num_output_channels=3), transforms.ToTensor()])
+transform = transforms.Compose([
+          transforms.Resize(256),
+          transforms.CenterCrop(224),
+          transforms.Grayscale(num_output_channels=3),
+          transforms.ToTensor(),
+          transforms.Normalize(mean=[0.485, 0.456, 0.406], 
+                               std=[0.229, 0.224, 0.225]),
+])
 train_data  = InputData(pd.DataFrame(train_images) , pd.DataFrame(train_targets) , transform)
 test_data  = InputData(pd.DataFrame(test_images) , pd.DataFrame(test_targets) , transform)
 
@@ -175,7 +182,7 @@ test_data_loader = DataLoader(test_data , batch_size = 12 , shuffle = True , num
 # criterion = nn.CrossEntropyLoss()
 # optimizer = optim.Adam(resnet.parameters() , lr = 0.03)
 
-densenet = torchvision.models.densenet121()
+densenet = torchvision.models.densenet161(weights='DEFAULT')
 
 for param in densenet.parameters():
     param.requires_grad = False
@@ -184,19 +191,38 @@ num_ftrs = densenet.classifier.in_features
 densenet.classifier = nn.Linear(num_ftrs , 2)
 densenet = densenet.to(device)
 criterion = nn.CrossEntropyLoss()
-# optimizer = AdaBelief(densenet.parameters(), lr=1e-3, eps=1e-16, betas=(0.9,0.999), weight_decouple = True , rectify = False)
-optimizer = optim.Adam(densenet.parameters() , lr = 0.01)
+optimizer = AdaBelief(densenet.parameters(), lr=1e-3, eps=1e-16, betas=(0.9,0.999), weight_decouple = True , rectify = False)
+# optimizer = optim.Adam(densenet.parameters() , lr = 0.01)
 
 
-best_model = train(densenet , train_data_loader , criterion , optimizer , 100)
+best_model = train(densenet , train_data_loader , criterion , optimizer , 1)
 densenet.load_state_dict(best_model)
 
 y_true, y_pred = test(densenet , test_data_loader , criterion )
 
 print(classification_report(y_true , y_pred , labels = range(0, 2)))
-    
-# model =
 
+from sklearn.metrics import roc_curve
+fpr1, tpr1, thresh1 = roc_curve(y_true , y_pred)
+from sklearn.metrics import roc_auc_score
+auc_score1 = roc_auc_score(y_true, y_pred)
+# model =
+print(fpr1 , tpr1 , thresh1)
+print(auc_score1)
+import matplotlib.pyplot as plt
+
+# plot roc curves
+plt.plot(fpr1, tpr1,color='blue', label='DenseNet')
+# title
+plt.title('ROC curve')
+# x label
+plt.xlabel('False Positive Rate')
+# y label
+plt.ylabel('True Positive rate')
+
+plt.legend(loc='best')
+plt.savefig(os.getcwd() + '/outputs/' + 'ROC_Gender',dpi=300)
+# plt.show()
 
 # model= nn.DataParallel(model)
 # model.to(device)
