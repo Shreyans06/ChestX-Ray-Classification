@@ -172,9 +172,9 @@ train_data_loader = DataLoader(train_data , batch_size = 12 , shuffle = True , n
 test_data_loader = DataLoader(test_data , batch_size = 12 , shuffle = True , num_workers = 1)
 
 
-# resnet = torchvision.models.resnet18()
-# resnet.fc = torch.nn.Linear(resnet.fc.in_features, 2)
-
+densenet = torchvision.models.resnet18()
+densenet.fc = torch.nn.Linear(densenet.fc.in_features, 2)
+densenet = densenet.to(device)
 # resnet = nn.DataParallel(resnet)
 # resnet.to(device)
 # # resnet.conv1 =  torch.nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
@@ -182,21 +182,23 @@ test_data_loader = DataLoader(test_data , batch_size = 12 , shuffle = True , num
 # criterion = nn.CrossEntropyLoss()
 # optimizer = optim.Adam(resnet.parameters() , lr = 0.03)
 
-densenet = torchvision.models.densenet161(weights='DEFAULT')
+# densenet = torchvision.models.densenet161(weights='DEFAULT')
 
-for param in densenet.parameters():
-    param.requires_grad = False
+# for param in densenet.parameters():
+#     param.requires_grad = False
 
-num_ftrs = densenet.classifier.in_features
-densenet.classifier = nn.Linear(num_ftrs , 2)
-densenet = densenet.to(device)
+# num_ftrs = densenet.classifier.in_features
+# densenet.classifier = nn.Linear(num_ftrs , 2)
+# densenet = densenet.to(device)
 criterion = nn.CrossEntropyLoss()
-optimizer = AdaBelief(densenet.parameters(), lr=1e-3, eps=1e-16, betas=(0.9,0.999), weight_decouple = True , rectify = False)
-# optimizer = optim.Adam(densenet.parameters() , lr = 0.01)
+# optimizer = AdaBelief(densenet.parameters(), lr=1e-3, eps=1e-16, betas=(0.9,0.999), weight_decouple = True , rectify = False)
+optimizer = optim.Adam(densenet.parameters() , lr = 0.01)
 
 
-best_model = train(densenet , train_data_loader , criterion , optimizer , 1)
+best_model = train(densenet , train_data_loader , criterion , optimizer , 2)
 densenet.load_state_dict(best_model)
+
+torch.save(densenet , os.getcwd()+'/outputs/models/gender')
 
 y_true, y_pred = test(densenet , test_data_loader , criterion )
 
@@ -221,9 +223,10 @@ plt.xlabel('False Positive Rate')
 plt.ylabel('True Positive rate')
 
 plt.legend(loc='best')
-plt.savefig(os.getcwd() + '/outputs/' + 'ROC_Gender',dpi=300)
+plt.savefig(os.getcwd() + '/outputs/ROCs/' + 'ROC_Gender',dpi=300)
 # plt.show()
 
 # model= nn.DataParallel(model)
 # model.to(device)
 # print(device)
+
