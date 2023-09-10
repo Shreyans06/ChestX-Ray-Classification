@@ -1,7 +1,6 @@
 import torch
 import os
 import matplotlib.pyplot as plt
-import cv2
 from PIL import Image
 from torch.utils.data import Dataset ,  DataLoader
 import torchvision.transforms as transforms
@@ -12,6 +11,8 @@ import torchvision.models
 from adabelief_pytorch import AdaBelief
 import copy
 from sklearn.metrics import classification_report
+from sklearn.metrics import roc_curve
+from sklearn.metrics import roc_auc_score
 
 def get_data(path , type ="train"):
     
@@ -115,6 +116,7 @@ def test(net ,test_data_loader , criterion):
     test_loss = 0
     y_pred = []
     y_true = []
+    y_pred_probs = []
     
     net.eval()
     
@@ -129,6 +131,12 @@ def test(net ,test_data_loader , criterion):
             
             test_loss += loss_val.item()
             
+
+            sm = torch.nn.Softmax()
+            probabilities = sm(outputs).cpu() 
+        
+            y_pred_probs += probabilities[:,1].tolist()
+
             pred_y = torch.max(outputs , 1)[1].data.squeeze()
             total += labels.size(0)
             
@@ -140,7 +148,7 @@ def test(net ,test_data_loader , criterion):
     accuracy = correct / total
     print(f"Test Accuracy of the model is : {accuracy * 100 : .2f} %")
     print(f"Overall test loss of the model is : {test_loss} ")
-    return y_true, y_pred
+    return y_true, y_pred , y_pred_probs
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -151,7 +159,6 @@ test_path = os.getcwd() + '/datasets/Gender01/test'
 train_images , train_targets , class_map = get_data(train_path)
 test_images , test_targets = get_data(test_path , "test")
 
-# transform =  transforms.Compose([transforms.Resize((224,224)) , transforms.Grayscale(num_output_channels=3), transforms.ToTensor()])
 transform = transforms.Compose([
           transforms.Resize(256),
           transforms.CenterCrop(224),
@@ -163,70 +170,54 @@ transform = transforms.Compose([
 train_data  = InputData(pd.DataFrame(train_images) , pd.DataFrame(train_targets) , transform)
 test_data  = InputData(pd.DataFrame(test_images) , pd.DataFrame(test_targets) , transform)
 
-# print(train_data.data.shape)
-# print(train_data.targets.shape)
-# print(test_data.targets.shape)
-# print(test_data.data.shape)
 
 train_data_loader = DataLoader(train_data , batch_size = 12 , shuffle = True , num_workers = 1)
 test_data_loader = DataLoader(test_data , batch_size = 12 , shuffle = True , num_workers = 1)
 
 
-densenet = torchvision.models.resnet18()
-densenet.fc = torch.nn.Linear(densenet.fc.in_features, 2)
-densenet = densenet.to(device)
-# resnet = nn.DataParallel(resnet)
-# resnet.to(device)
-# # resnet.conv1 =  torch.nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+model = torchvision.models.densenet161()
 
-# criterion = nn.CrossEntropyLoss()
-# optimizer = optim.Adam(resnet.parameters() , lr = 0.03)
+for param in model.parameters():
+    param.requires_grad = False
 
-# densenet = torchvision.models.densenet161(weights='DEFAULT')
-
-# for param in densenet.parameters():
-#     param.requires_grad = False
-
-# num_ftrs = densenet.classifier.in_features
-# densenet.classifier = nn.Linear(num_ftrs , 2)
-# densenet = densenet.to(device)
+num_ftrs = model.classifier.in_features
+model.classifier = nn.Linear(num_ftrs , 2)
+model = model.to(device)
 criterion = nn.CrossEntropyLoss()
-# optimizer = AdaBelief(densenet.parameters(), lr=1e-3, eps=1e-16, betas=(0.9,0.999), weight_decouple = True , rectify = False)
-optimizer = optim.Adam(densenet.parameters() , lr = 0.01)
 
 
-best_model = train(densenet , train_data_loader , criterion , optimizer , 2)
-densenet.load_state_dict(best_model)
+optimizer = optim.Adam(model.parameters() , lr = 0.01)
 
-torch.save(densenet , os.getcwd()+'/outputs/models/gender')
 
-y_true, y_pred = test(densenet , test_data_loader , criterion )
+best_model = train(model , train_data_loader , criterion , optimizer , 100)
+model.load_state_dict(best_model)
+
+torch.save(model , os.getcwd() + "/outputs/models/gender")
+
+y_true, y_pred , y_pred_probs= test(model , train_data_loader , criterion )
 
 print(classification_report(y_true , y_pred , labels = range(0, 2)))
 
-from sklearn.metrics import roc_curve
-fpr1, tpr1, thresh1 = roc_curve(y_true , y_pred)
-from sklearn.metrics import roc_auc_score
-auc_score1 = roc_auc_score(y_true, y_pred)
-# model =
-print(fpr1 , tpr1 , thresh1)
-print(auc_score1)
-import matplotlib.pyplot as plt
 
-# plot roc curves
-plt.plot(fpr1, tpr1,color='blue', label='DenseNet')
-# title
-plt.title('ROC curve')
-# x label
+ns_probs = [0 for _ in range(len(y_true))]
+ns_auc_score = roc_auc_score(y_true, ns_probs)
+dn_auc_score = roc_auc_score(y_true , y_pred_probs)
+
+print('Random: ROC AUC=%.3f' % (ns_auc_score))
+print('DenseNet: ROC AUC=%.3f' % (dn_auc_score))
+
+ns_fpr, ns_tpr, _ = roc_curve(y_true, ns_probs)
+lr_fpr, lr_tpr, _ = roc_curve(y_true, y_pred_probs)
+
+plt.plot(ns_fpr, ns_tpr, linestyle='--', label='Random')
+plt.plot(lr_fpr, lr_tpr, linestyle='-', label='DenseNet')
+
+# axis labels
 plt.xlabel('False Positive Rate')
-# y label
-plt.ylabel('True Positive rate')
+plt.ylabel('True Positive Rate')
 
-plt.legend(loc='best')
+# show the legend
+plt.legend()
+
 plt.savefig(os.getcwd() + '/outputs/ROCs/' + 'ROC_Gender',dpi=300)
-# plt.show()
-
-# model= nn.DataParallel(model)
-# model.to(device)
-# print(device)
 

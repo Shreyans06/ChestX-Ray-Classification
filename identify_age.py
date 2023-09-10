@@ -18,24 +18,8 @@ from sklearn.metrics import mean_squared_error
 from sklearn.metrics import r2_score
 import math 
 
-def get_data(path , data_list ):
-    
-    files = os.listdir(path)
-
-    images = []
-    targets = []
-    data = pd.DataFrame()
-    # images += [path + '/' + each_image for each_image in files]
-    # targets += [ data_list.loc[data_list['filenames'] == images[i].split('/')[-1] , 'age'].values.tolist() for i in range(len(images)) ]
-    # for index, row in data_list.iterrows():
-    #     data['images'] = path + '/' + row['filenames']
-    #     data['age'] = row['age']
-    # print(targets)
-    
-    # data['images'] = images
-    # data['age'] = targets
+def get_data(path , data_list ):   
     data_list['filenames'] = data_list['filenames'].apply(lambda x : path + '/' + x)
-    # print(data)
     return data_list 
 
 
@@ -102,7 +86,7 @@ def train(net , train_data_loader , criterion , optimizer , num_epochs = 3):
             inp_data , labels = inp_data.to(device) , labels.to(device)
      
             outputs = net(inp_data)
-            loss_val = criterion(outputs , labels)
+            loss_val = criterion(outputs[:,0] , labels)
 
             optimizer.zero_grad()
 
@@ -113,14 +97,9 @@ def train(net , train_data_loader , criterion , optimizer , num_epochs = 3):
             if (i + 1) % 2 == 0:
                 print(f" Epoch = [{iteration + 1} / {num_epochs}] Step = [{i + 1} / {len(train_data_loader)}]")
             
-            net.eval()
-            # print(net(inp_data)[:,0].cpu().tolist())
-            y_predicted += net(inp_data)[:,0].cpu().tolist()
-            y_true += labels.cpu().tolist()
-        # print(len(y_predicted) , len(y_true))
-        if mean_squared_error(y_true, y_predicted) < best_loss:
-            best_loss = loss_val.item()
-            best_model_wts = copy.deepcopy(net.state_dict())
+            if loss_val.item() < best_loss:
+                best_loss = loss_val.item()
+                best_model_wts = copy.deepcopy(net.state_dict())
 
     return best_model_wts
 
@@ -139,8 +118,8 @@ def test(net ,test_data_loader , criterion):
             inp_data , labels = inp_data.to(device) , labels.to(device)
             
             outputs  = net(inp_data)
-            
-            loss_val = criterion(outputs , labels)
+           
+            loss_val = criterion(outputs[:,0] , labels)
             
             test_loss += loss_val.item()
             
@@ -184,7 +163,7 @@ test_data_set = get_data(test_path , test_data_list)
 # print(data_set)
 
 
-transform =  transforms.Compose([
+transform = transforms.Compose([
           transforms.Resize(256),
           transforms.CenterCrop(224),
           transforms.Grayscale(num_output_channels=3),
@@ -214,41 +193,43 @@ test_data_loader = DataLoader(test_data , batch_size = 5 , shuffle = True , num_
 
 # # criterion = nn.CrossEntropyLoss()
 # # optimizer = optim.Adam(resnet.parameters() , lr = 0.03)
-class AgeModel(nn.Module):
-   def __init__(self):
-        super().__init__()
-        layers = list(torchvision.models.resnet34(pretrained=True).children())[:-2]
-        layers += [nn.AvgPool2d(), Flatten()]
-        layers += [nn.BatchNorm1d(1024, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)]
-        layers += [nn.Dropout(p=0.50)]
-        layers += [nn.Linear(1024, 512, bias=True), nn.ReLU(inplace=True)]
-        layers += [nn.BatchNorm1d(512, eps=1e-05, momentum=0.1, affine=True, track_running_stats=True)]
-        layers += [nn.Dropout(p=0.50)]
-        layers += [nn.Linear(512, 16, bias=True), nn.ReLU(inplace=True)]
-        layers += [nn.Linear(16,1)]
-        self.agemodel = nn.Sequential(*layers)
-    
-   def forward(self, x):
-        return self.agemodel(x).squeeze(-1)
-   
-weights = torchvision.models.ResNet152_Weights.DEFAULT
-model = torchvision.models.resnet152(weights = weights)
 
+   
+# weights = torchvision.models.ResNetDe152_Weights.DEFAULT
+# model = torchvision.models.resnet152(weights = weights)
+model = torchvision.models.densenet161(weights = 'DEFAULT')
 # preprocess = weights.transforms()
 
-for param in model.parameters():
-    param.requires_grad = False
+# for name , param in model.named_parameters():
+#     param.requires_grad = False
 
-num_ftrs = model.fc.in_features
-model.fc = nn.Linear(num_ftrs , 1)
+# for name, param in model.named_parameters():
+#     if 'classifier' in name:
+#         param.requires_grad = True
+
+non_frozen_parameters = [p for p in model.parameters() if p.requires_grad]
+# print(non_frozen_parameters)
+num_ftrs = model.classifier.in_features
+print(num_ftrs)
+model.classifier = nn.Sequential( 
+    # nn.BatchNorm1d(num_ftrs),
+    # nn.Linear(in_features= num_ftrs , out_features= 512),
+    # nn.ReLU(inplace=True),
+    # nn.BatchNorm1d(512),
+    # nn.Dropout(),
+    nn.Linear(in_features= num_ftrs , out_features= 1)
+
+)
 model = model.to(device)
-criterion = L1LossFlat()
-optimizer = AdaBelief(model.parameters(), lr=1e-3, eps=1e-16, betas=(0.9,0.999), weight_decouple = True , rectify = False)
-# optimizer = optim.Adam(model.parameters() , lr = 0.01)
+criterion = nn.L1Loss()
+# optimizer = AdaBelief(non_frozen_parameters, lr=1e-3, eps=1e-16, betas=(0.9,0.999), weight_decouple = True , rectify = False)
+optimizer = optim.Adam(non_frozen_parameters , lr = 0.01)
 
 
-best_model = train(model , train_data_loader , criterion , optimizer , 100)
+best_model = train(model , train_data_loader , criterion , optimizer , 200)
 model.load_state_dict(best_model)
+
+torch.save(model , os.getcwd() + "/outputs/models/age")
 
 y_true, y_pred = test(model , test_data_loader , criterion )
 print(y_true[0:5])
